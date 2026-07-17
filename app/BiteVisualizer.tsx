@@ -127,9 +127,9 @@ function normalizeStlUnitsToMillimeters(geometry: THREE.BufferGeometry) {
 function makeDemoPlateGeometry() {
   // A representative wedge-style armor plate. The spinner approaches along
   // +X, so the leading edge is low and the plate rises as X increases.
-  const thickness = 10;
+  const thickness = 30;
   const width = 250;
-  const slopeLength = 200;
+  const slopeLength = 100;
   const incline = -45 * DEG;
   const geometry = new THREE.BoxGeometry(slopeLength, width, thickness);
   geometry.rotateY(incline);
@@ -929,7 +929,7 @@ export default function Home() {
   }, [replaceArmorGeometry]);
 
   const restoreDemo = useCallback(() => {
-    replaceArmorGeometry(makeDemoPlateGeometry(), "Demo wedge plate", "250 mm wide × 10 mm thick · 45° rising ramp");
+    replaceArmorGeometry(makeDemoPlateGeometry(), "Demo wedge plate", "250 mm wide × 30 mm thick · 45° half-height ramp");
   }, [replaceArmorGeometry]);
 
   const frameScene = useCallback(() => {
