@@ -338,10 +338,10 @@ function createSpinner(config: WeaponConfig) {
     toothGroup.rotation.z = theta;
 
     const arm = new THREE.Mesh(
-      new THREE.BoxGeometry(Math.max(1, config.radius - 12), 2.2, 2.2),
+      new THREE.BoxGeometry(Math.max(1, config.radius - 8), 2.2, 2.2),
       ghostMaterial,
     );
-    arm.position.x = config.radius / 2;
+    arm.position.x = (config.radius + 8) / 2;
     toothGroup.add(arm);
 
     const rod = new THREE.Mesh(
