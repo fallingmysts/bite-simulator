@@ -78,7 +78,7 @@ type ThreeState = {
 const DEFAULT_WEAPON: WeaponConfig = {
   rpm: 2400,
   toothCount: 2,
-  toothWidth: 26,
+  toothWidth: 7,
   radius: 110,
   momentOfInertia: 0.045,
   closingSpeed: 3,
@@ -87,7 +87,7 @@ const DEFAULT_WEAPON: WeaponConfig = {
   spinPlane: "horizontal",
   spinDirection: "ccw",
   startX: -230,
-  startY: 0,
+  startY: 10,
   startZ: 28,
 };
 
