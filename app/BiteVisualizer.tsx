@@ -125,18 +125,16 @@ function normalizeStlUnitsToMillimeters(geometry: THREE.BufferGeometry) {
 }
 
 function makeDemoPlateGeometry() {
-  // A representative 10 mm armor plate: 250 mm across, 140 mm tall, and
-  // inclined 45 degrees from vertical. Keep its lower edge on the XY floor.
+  // A representative wedge-style armor plate. The spinner approaches along
+  // +X, so the leading edge is low and the plate rises as X increases.
   const thickness = 10;
   const width = 250;
-  const height = 140;
-  const incline = 45 * DEG;
-  const geometry = new THREE.BoxGeometry(thickness, width, height);
-  geometry.translate(0, 0, height / 2);
+  const slopeLength = 200;
+  const incline = -45 * DEG;
+  const geometry = new THREE.BoxGeometry(slopeLength, width, thickness);
   geometry.rotateY(incline);
 
-  // Rotating around the lower-edge center can place one corner below Z=0;
-  // lift the finished solid so the entire plate rests on the floor plane.
+  // Rest the low, spinner-facing edge on the XY floor.
   geometry.computeBoundingBox();
   geometry.translate(0, 0, -(geometry.boundingBox?.min.z ?? 0));
   geometry.computeVertexNormals();
@@ -561,7 +559,7 @@ export default function Home() {
   const [armorTransform, setArmorTransform] = useState<ArmorTransform>(DEFAULT_ARMOR);
   const [stage, setStage] = useState<Stage>("editor");
   const [editorTool, setEditorTool] = useState<EditorTool>("orbit");
-  const [armorName, setArmorName] = useState("Demo angled plate");
+  const [armorName, setArmorName] = useState("Demo wedge plate");
   const [meshStatus, setMeshStatus] = useState("Demo solid loaded");
   const [livePathLength, setLivePathLength] = useState(0);
   const [result, setResult] = useState<SimResult | null>(null);
@@ -931,7 +929,7 @@ export default function Home() {
   }, [replaceArmorGeometry]);
 
   const restoreDemo = useCallback(() => {
-    replaceArmorGeometry(makeDemoPlateGeometry(), "Demo angled plate", "250 × 140 × 10 mm · 45° incline");
+    replaceArmorGeometry(makeDemoPlateGeometry(), "Demo wedge plate", "250 mm wide × 10 mm thick · 45° rising ramp");
   }, [replaceArmorGeometry]);
 
   const frameScene = useCallback(() => {
