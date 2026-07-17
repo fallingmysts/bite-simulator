@@ -4,6 +4,8 @@ An interactive browser-based tool for visualizing combat-robot spinner bite geom
 
 ## Live site
 
+[Open the Combat Robot Bite Visualizer](https://poopopoop09909891.github.io/bite-simulator/)
+
 The GitHub Pages deployment is built automatically from the `main` branch.
 
 ## Development
