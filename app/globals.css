@@ -130,13 +130,41 @@ button:disabled { opacity: 0.42; cursor: not-allowed; }
 }
 .metric { min-width: 0; padding: 8px 18px; display: flex; flex-direction: column; justify-content: center; border-right: 1px solid var(--line); }
 .metric:last-child { border-right: 0; }
-.metric span { color: #77738f; font-size: 8px; font-weight: 800; letter-spacing: .18em; }
+.metric-label { display: flex; align-items: center; gap: 6px; }
+.metric-label span { color: #77738f; font-size: 8px; font-weight: 800; letter-spacing: .18em; }
+.metric-info {
+  width: 15px; height: 15px; display: grid; place-items: center; flex: 0 0 auto;
+  padding: 0; cursor: pointer; border: 1px solid rgba(57, 255, 155, .48);
+  border-radius: 50%; color: var(--green); background: rgba(57, 255, 155, .06);
+  font: 800 9px/1 Georgia, serif; text-transform: lowercase;
+  box-shadow: 0 0 8px rgba(57, 255, 155, .12);
+}
+.metric-info:hover { background: rgba(57, 255, 155, .16); box-shadow: 0 0 12px rgba(57, 255, 155, .28); }
 .metric strong { margin-top: 5px; font-size: clamp(14px, 1.4vw, 20px); font-family: "Courier New", monospace; white-space: nowrap; }
 .metric-accent strong { color: var(--green); text-shadow: 0 0 14px rgba(57, 255, 155, .62); }
 .metric-value { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .metric-value em { font: 800 9px "Courier New", monospace; white-space: nowrap; font-style: normal; }
 .metric-value .delta-up { color: var(--green); text-shadow: 0 0 9px rgba(57, 255, 155, .45); }
 .metric-value .delta-down { color: #ff547d; text-shadow: 0 0 9px rgba(255, 84, 125, .4); }
+
+.info-modal-backdrop {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px;
+  background: rgba(3, 1, 11, .78); backdrop-filter: blur(8px);
+}
+.info-modal {
+  position: relative; width: min(520px, 100%); padding: 25px;
+  border: 1px solid rgba(57, 255, 155, .35);
+  background: linear-gradient(150deg, rgba(18, 11, 43, .98), rgba(5, 4, 18, .99));
+  box-shadow: 0 0 55px rgba(57, 255, 155, .12), inset 0 1px rgba(255, 255, 255, .04);
+}
+.info-modal::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--green); box-shadow: 0 0 13px var(--green); }
+.info-modal-kicker { margin: 0 36px 7px 0 !important; color: var(--green) !important; font: 800 8px "Courier New", monospace !important; letter-spacing: .17em; }
+.info-modal h2 { margin: 0 38px 15px 0; color: white; font-size: 20px; letter-spacing: -.02em; }
+.info-modal p { margin: 0 0 12px; color: #aaa5bb; font-size: 11px; line-height: 1.65; }
+.info-modal-close { position: absolute; top: 13px; right: 13px; width: 30px; height: 30px; cursor: pointer; border: 1px solid rgba(118, 100, 169, .3); color: #aaa4bc; background: rgba(9, 5, 25, .65); font-size: 19px; }
+.info-modal-close:hover { color: white; border-color: rgba(57, 255, 155, .45); }
+.info-modal-action { min-height: 36px; margin-top: 4px; padding: 0 17px; cursor: pointer; border: 1px solid rgba(57, 255, 155, .42); color: var(--green); background: rgba(57, 255, 155, .08); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; }
+.info-modal-action:hover { background: rgba(57, 255, 155, .15); box-shadow: 0 0 17px rgba(57, 255, 155, .13); }
 
 .workspace {
   min-height: calc(100vh - 148px);
