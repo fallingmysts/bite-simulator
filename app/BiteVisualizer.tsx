@@ -48,6 +48,12 @@ type SimFrame = {
   pathLength: number;
 };
 
+type ContactKinematics = {
+  normalVelocity: number;
+  tangentialVelocity: number;
+  impactAngle: number;
+};
+
 type SimResult = {
   frames: SimFrame[];
   tracerPoints: THREE.Vector3[];
@@ -58,6 +64,7 @@ type SimResult = {
   entry: THREE.Vector3 | null;
   exit: THREE.Vector3 | null;
   physicsDuration: number;
+  contactKinematics: ContactKinematics | null;
 };
 
 type MetricSnapshot = {
@@ -67,6 +74,9 @@ type MetricSnapshot = {
   energy: number;
   biteMm: number;
   pathLength: number;
+  normalVelocity: number | null;
+  tangentialVelocity: number | null;
+  impactAngle: number | null;
 };
 
 type ArmorSource =
@@ -86,7 +96,7 @@ type HistoryEntry = {
   hit: boolean;
 };
 
-type MetricDeltas = Record<keyof MetricSnapshot, number>;
+type MetricDeltas = Record<keyof MetricSnapshot, number | null>;
 
 type ThreeState = {
   scene: THREE.Scene;
@@ -372,7 +382,59 @@ function segmentSurfaceHit(mesh: THREE.Mesh, from: THREE.Vector3, to: THREE.Vect
   const raycaster = new THREE.Raycaster(from, delta.normalize(), 0, length + 0.001);
   (raycaster as THREE.Raycaster & { firstHitOnly?: boolean }).firstHitOnly = true;
   const hit = raycaster.intersectObject(mesh, false)[0];
-  return hit && hit.distance <= length + 0.001 ? hit.point.clone() : null;
+  return hit && hit.distance <= length + 0.001 ? hit : null;
+}
+
+/**
+ * Return a unique world-space surface normal at an intersection. A hit inside
+ * a triangle always has a unique tangent plane. At a triangle boundary we
+ * inspect every incident triangle: coplanar STL seams are valid, while a real
+ * model edge or vertex deliberately returns null.
+ */
+function uniqueSurfaceNormal(mesh: THREE.Mesh, hit: THREE.Intersection) {
+  if (!hit.face) return null;
+  const geometry = mesh.geometry;
+  const positions = geometry.getAttribute("position");
+  if (!positions) return null;
+  const localPoint = mesh.worldToLocal(hit.point.clone());
+  const vertex = (index: number) => new THREE.Vector3(
+    positions.getX(index),
+    positions.getY(index),
+    positions.getZ(index),
+  );
+  const hitTriangle = new THREE.Triangle(
+    vertex(hit.face.a),
+    vertex(hit.face.b),
+    vertex(hit.face.c),
+  );
+  const barycentric = hitTriangle.getBarycoord(localPoint, new THREE.Vector3());
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+  const toWorldNormal = (normal: THREE.Vector3) => normal.applyNormalMatrix(normalMatrix).normalize();
+  const hitNormal = toWorldNormal(hitTriangle.getNormal(new THREE.Vector3()));
+  if (Math.min(barycentric.x, barycentric.y, barycentric.z) > 1e-4) return hitNormal;
+
+  geometry.computeBoundingBox();
+  const diagonal = geometry.boundingBox?.getSize(new THREE.Vector3()).length() ?? 1;
+  const pointTolerance = Math.max(1e-5, diagonal * 1e-7);
+  const index = geometry.index;
+  const triangleCount = Math.floor((index?.count ?? positions.count) / 3);
+  const incidentNormals: THREE.Vector3[] = [];
+  for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
+    const indices = [0, 1, 2].map((corner) => {
+      const offset = triangleIndex * 3 + corner;
+      return index ? index.getX(offset) : offset;
+    });
+    const triangle = new THREE.Triangle(vertex(indices[0]), vertex(indices[1]), vertex(indices[2]));
+    const closest = triangle.closestPointToPoint(localPoint, new THREE.Vector3());
+    if (closest.distanceToSquared(localPoint) <= pointTolerance * pointTolerance) {
+      const normal = triangle.getNormal(new THREE.Vector3());
+      if (normal.lengthSq() > 1e-12) incidentNormals.push(normal.normalize());
+    }
+  }
+  if (incidentNormals.length < 2) return null;
+  const reference = incidentNormals[0];
+  const coplanar = incidentNormals.every((normal) => Math.abs(reference.dot(normal)) > 0.9999);
+  return coplanar ? toWorldNormal(reference.clone()) : null;
 }
 
 function pointInsideMesh(mesh: THREE.Mesh, point: THREE.Vector3, worldBox: THREE.Box3) {
@@ -836,7 +898,9 @@ export default function Home() {
 
   const metricDelta = (key: keyof MetricSnapshot, unit: string, digits: number) => {
     if (stage !== "result" || !metricDeltas) return null;
-    const rounded = Number(metricDeltas[key].toFixed(digits));
+    const delta = metricDeltas[key];
+    if (typeof delta !== "number" || !Number.isFinite(delta)) return null;
+    const rounded = Number(delta.toFixed(digits));
     if (rounded === 0) return null;
     const sign = rounded > 0 ? "+" : "−";
     return `${sign}${Math.abs(rounded).toLocaleString(undefined, {
@@ -1308,6 +1372,7 @@ export default function Home() {
     let lastTrackedInside = false;
     let finished = false;
     let finalTime = endTime;
+    let contactKinematics: ContactKinematics | null = null;
 
     for (let step = 0; step <= steps && !finished; step += 1) {
       const t = Math.min(endTime, step * dt);
@@ -1315,16 +1380,26 @@ export default function Home() {
       const angle = phase + omega * t;
 
       if (trackedTooth === null) {
-        let earliest: { tooth: number; sample: number; point: THREE.Vector3; current: THREE.Vector3; score: number } | null = null;
+        let earliest: {
+          tooth: number;
+          sample: number;
+          point: THREE.Vector3;
+          current: THREE.Vector3;
+          score: number;
+          intersection: THREE.Intersection | null;
+        } | null = null;
         for (let tooth = 0; tooth < config.toothCount; tooth += 1) {
           for (let sample = 0; sample < rodSamples.length; sample += 1) {
             const point = toothPoint(config, center, angle, tooth, rodSamples[sample]);
             const inside = pointInsideMesh(state.armorMesh, point, worldBox);
             if (step > 0 && inside && !previousInside[tooth][sample]) {
-              const hit = segmentSurfaceHit(state.armorMesh, previousPoints[tooth][sample], point) ?? point.clone();
+              const intersection = segmentSurfaceHit(state.armorMesh, previousPoints[tooth][sample], point);
+              const hit = intersection?.point.clone() ?? point.clone();
               const segmentLength = Math.max(1e-9, previousPoints[tooth][sample].distanceTo(point));
               const score = previousPoints[tooth][sample].distanceTo(hit) / segmentLength;
-              if (!earliest || score < earliest.score) earliest = { tooth, sample, point: hit, current: point.clone(), score };
+              if (!earliest || score < earliest.score) {
+                earliest = { tooth, sample, point: hit, current: point.clone(), score, intersection };
+              }
             }
             previousPoints[tooth][sample].copy(point);
             previousInside[tooth][sample] = inside;
@@ -1337,6 +1412,40 @@ export default function Home() {
           lastTrackedPoint = earliest.current.clone();
           pathLength += entry.distanceTo(lastTrackedPoint);
           lastTrackedInside = true;
+          if (earliest.intersection) {
+            const surfaceNormal = uniqueSurfaceNormal(state.armorMesh, earliest.intersection);
+            if (surfaceNormal) {
+              const previousT = Math.max(0, t - dt);
+              const contactT = previousT + (t - previousT) * clamp(earliest.score, 0, 1);
+              const contactCenter = start.clone().addScaledVector(direction, speed * contactT);
+              const contactAngle = phase + omega * contactT;
+              const contactTooth = toothPoint(
+                config,
+                contactCenter,
+                contactAngle,
+                earliest.tooth,
+                rodSamples[earliest.sample],
+              );
+              const radiusVector = contactTooth.sub(contactCenter);
+              const spinAxis = new THREE.Vector3(0, 0, 1)
+                .applyQuaternion(baseQuaternion(config))
+                .normalize();
+              const rotationalVelocity = new THREE.Vector3()
+                .crossVectors(spinAxis, radiusVector)
+                .multiplyScalar(omega);
+              const contactVelocity = direction.clone().multiplyScalar(speed).add(rotationalVelocity);
+              const normalVelocityMm = Math.abs(contactVelocity.dot(surfaceNormal));
+              const tangentialVelocityMm = Math.sqrt(Math.max(
+                0,
+                contactVelocity.lengthSq() - normalVelocityMm ** 2,
+              ));
+              contactKinematics = {
+                normalVelocity: normalVelocityMm / 1000,
+                tangentialVelocity: tangentialVelocityMm / 1000,
+                impactAngle: Math.atan2(normalVelocityMm, tangentialVelocityMm) / DEG,
+              };
+            }
+          }
           tracerPoints.push(...toothOverlapSegments(
             config,
             state.armorMesh,
@@ -1352,7 +1461,7 @@ export default function Home() {
         if (lastTrackedInside && inside) {
           pathLength += lastTrackedPoint.distanceTo(current);
         } else if (lastTrackedInside && !inside) {
-          const surfaceExit = segmentSurfaceHit(state.armorMesh, lastTrackedPoint, current) ?? current.clone();
+          const surfaceExit = segmentSurfaceHit(state.armorMesh, lastTrackedPoint, current)?.point.clone() ?? current.clone();
           pathLength += lastTrackedPoint.distanceTo(surfaceExit);
           exit = surfaceExit;
           finished = true;
@@ -1407,6 +1516,7 @@ export default function Home() {
       entry,
       exit,
       physicsDuration: finalTime,
+      contactKinematics,
     };
   }, [config]);
 
@@ -1428,15 +1538,23 @@ export default function Home() {
       energy: derived.energy,
       biteMm: derived.biteMm,
       pathLength: nextResult.pathLength,
+      normalVelocity: nextResult.contactKinematics?.normalVelocity ?? null,
+      tangentialVelocity: nextResult.contactKinematics?.tangentialVelocity ?? null,
+      impactAngle: nextResult.contactKinematics?.impactAngle ?? null,
     };
     const previousRun = historyRef.current[0];
+    const difference = (current: number | null, previous: number | null | undefined) =>
+      typeof current === "number" && typeof previous === "number" ? current - previous : null;
     setMetricDeltas(previousRun ? {
-      rpm: metrics.rpm - previousRun.metrics.rpm,
-      tipMps: metrics.tipMps - previousRun.metrics.tipMps,
-      closingSpeed: metrics.closingSpeed - previousRun.metrics.closingSpeed,
-      energy: metrics.energy - previousRun.metrics.energy,
-      biteMm: metrics.biteMm - previousRun.metrics.biteMm,
-      pathLength: metrics.pathLength - previousRun.metrics.pathLength,
+      rpm: difference(metrics.rpm, previousRun.metrics.rpm),
+      tipMps: difference(metrics.tipMps, previousRun.metrics.tipMps),
+      closingSpeed: difference(metrics.closingSpeed, previousRun.metrics.closingSpeed),
+      energy: difference(metrics.energy, previousRun.metrics.energy),
+      biteMm: difference(metrics.biteMm, previousRun.metrics.biteMm),
+      pathLength: difference(metrics.pathLength, previousRun.metrics.pathLength),
+      normalVelocity: difference(metrics.normalVelocity, previousRun.metrics.normalVelocity),
+      tangentialVelocity: difference(metrics.tangentialVelocity, previousRun.metrics.tangentialVelocity),
+      impactAngle: difference(metrics.impactAngle, previousRun.metrics.impactAngle),
     } : null);
     const armorSource = armorSourceRef.current.kind === "stl"
       ? { kind: "stl" as const, buffer: armorSourceRef.current.buffer.slice(0) }
@@ -1569,6 +1687,21 @@ export default function Home() {
         <Metric label="STORED ENERGY" value={`${derived.energy.toLocaleString(undefined, { maximumFractionDigits: 0 })} J`} delta={metricDelta("energy", "J", 0)} />
         <Metric label="THEORETICAL MAXIMUM BITE DEPTH" value={`${derived.biteMm.toFixed(1)} mm`} delta={metricDelta("biteMm", "mm", 1)} />
         <Metric label="IMPACT PATH" value={`${livePathLength.toFixed(1)} mm`} delta={metricDelta("pathLength", "mm", 1)} onInfo={() => setShowImpactInfo(true)} />
+        <Metric
+          label="NORMAL VELOCITY"
+          value={result?.contactKinematics ? `${result.contactKinematics.normalVelocity.toFixed(1)} m/s` : "N/A"}
+          delta={metricDelta("normalVelocity", "m/s", 1)}
+        />
+        <Metric
+          label="IMPACT ANGLE"
+          value={result?.contactKinematics ? `${result.contactKinematics.impactAngle.toFixed(1)}°` : "N/A"}
+          delta={metricDelta("impactAngle", "°", 1)}
+        />
+        <Metric
+          label="TANGENTIAL VELOCITY"
+          value={result?.contactKinematics ? `${result.contactKinematics.tangentialVelocity.toFixed(1)} m/s` : "N/A"}
+          delta={metricDelta("tangentialVelocity", "m/s", 1)}
+        />
       </section>
 
       {showImpactInfo && (
