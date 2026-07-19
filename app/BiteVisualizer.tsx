@@ -843,9 +843,11 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [metricDeltas, setMetricDeltas] = useState<MetricDeltas | null>(null);
   const [showImpactInfo, setShowImpactInfo] = useState(false);
+  const [metricScrollState, setMetricScrollState] = useState<"none" | "start" | "middle" | "end">("none");
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const metricRailRef = useRef<HTMLElement | null>(null);
   const threeRef = useRef<ThreeState | null>(null);
   const armorSourceRef = useRef<ArmorSource>({ kind: "demo" });
   const historyRef = useRef<HistoryEntry[]>([]);
@@ -863,6 +865,23 @@ export default function Home() {
   useEffect(() => { stageRef.current = stage; }, [stage]);
   useEffect(() => { resultRef.current = result; }, [result]);
   useEffect(() => { historyRef.current = history; }, [history]);
+
+  const updateMetricScrollState = useCallback((element: HTMLElement) => {
+    const maximum = element.scrollWidth - element.clientWidth;
+    if (maximum <= 2) setMetricScrollState("none");
+    else if (element.scrollLeft <= 8) setMetricScrollState("start");
+    else if (element.scrollLeft >= maximum - 8) setMetricScrollState("end");
+    else setMetricScrollState("middle");
+  }, []);
+
+  useEffect(() => {
+    const element = metricRailRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => updateMetricScrollState(element));
+    observer.observe(element);
+    updateMetricScrollState(element);
+    return () => observer.disconnect();
+  }, [updateMetricScrollState]);
 
   useEffect(() => {
     if (!showImpactInfo) return;
@@ -1680,7 +1699,13 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="metric-rail" aria-label="Live calculated metrics">
+      <div className={`metric-rail-shell scroll-${metricScrollState}`}>
+      <section
+        ref={metricRailRef}
+        className="metric-rail"
+        aria-label="Live calculated metrics"
+        onScroll={(event) => updateMetricScrollState(event.currentTarget)}
+      >
         <Metric label="RPM" value={Math.round(config.rpm).toLocaleString()} delta={metricDelta("rpm", "", 0)} />
         <Metric label="TIP SPEED" value={`${derived.tipMps.toFixed(1)} m/s`} delta={metricDelta("tipMps", "m/s", 1)} />
         <Metric label="CLOSING SPEED" value={`${config.closingSpeed.toFixed(1)} m/s`} delta={metricDelta("closingSpeed", "m/s", 1)} />
@@ -1703,6 +1728,12 @@ export default function Home() {
           delta={metricDelta("tangentialVelocity", "m/s", 1)}
         />
       </section>
+      {metricScrollState !== "none" && (
+        <div className="metric-scroll-hint" aria-hidden="true">
+          {metricScrollState === "start" ? "SCROLL STATS  →" : metricScrollState === "end" ? "←  SCROLL STATS" : "←  SCROLL  →"}
+        </div>
+      )}
+      </div>
 
       {showImpactInfo && (
         <div
